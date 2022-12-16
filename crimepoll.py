@@ -23,11 +23,14 @@ from dash.dependencies import Input, Output
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 
-aire_map = pd.read_csv("../CSV_limpios/aire_v2.csv")
-crime_map = pd.read_csv("../CSV_limpios/crimen_v2.csv")
+#aire_map = pd.read_csv("../CSV_limpios/aire_v2.csv")
+#crime_map = pd.read_csv("../CSV_limpios/crimen_v2.csv")
+
+aire_map = pd.read_csv("./csv/aire_v2.csv")
+crime_map = pd.read_csv("./csv/crimen_v2.csv")
 
 
-df_all = pd.read_csv("../CSV_limpios/df_air_crime_evaluation.csv")
+df_all = pd.read_csv("./csv/df_air_crime_evaluation.csv")
 #df_all = pd.read_csv("../CSV_limpios/df_air_crime_evaluation_o3.csv")
 
 models = {
@@ -51,13 +54,18 @@ crime_mapper = {1:[1, 5], 2:[6, 10], 3:[11, 15], 4:[16, 20], 5:[21, 25], 6:[26, 
 def get_prediction(dia, mes, anio, aqi, alcaldia):
     time = [dia, mes, anio, aqi]
     prediction = models[alcaldia][1]
+
     for i in range(len(models[alcaldia])-3):
         prediction = prediction + models[alcaldia][i+2]*time[i]
 
+    if(prediction<0):
+        prediction = 1
+        
     round_prediction = round(((math.modf(prediction)[0])*5%100) + crime_mapper[math.floor(prediction)][0])
     
     return f'{round_prediction} violent crimes, model accuracy: {models[alcaldia][-1]}%'
     
+#df_all = pd.read_csv("../CSV_limpios/df_air_crime_evaluation.csv")
 df_prepared = df_all.copy()
 
 
@@ -69,6 +77,24 @@ app.layout = dbc.Container([
              html.H1("CRIMEPOLL", style={'text-align': 'center'}),
              html.Br(),
              html.Br()
+        ], width=12)
+    ]),
+
+    dbc.Row([
+        dbc.Col([
+            html.Div([
+                daq.ToggleSwitch(
+                    id='toggle-switch',
+                    value=False,
+                    label='Switch PM2.5 / PM2.5 with Ozone',
+                    labelPosition='bottom'
+                ),
+                html.Br(),
+                html.Br(),
+                html.Div(id='toggle-switch-output'),
+                html.Br(),
+                html.Br()
+            ])
         ], width=12)
     ]),
 
@@ -192,23 +218,49 @@ app.layout = dbc.Container([
         dbc.Col([
             html.Br(),
             html.Br(),
-            html.Br(),
+            html.Div(
+                [
+                    dbc.Button("CrimePoll on GitHub", outline=True, color="dark", href="https://github.com/danielgonz77/CrimePoll_v3")
+                ],
+                className="d-grid gap-2 col-6 mx-auto",
+            ),
             html.Br(),
             html.Br()
         ], width=12)
     ])
+
+    # dbc.Row([
+    #     dbc.Col([
+    #         html.Br(),
+    #         html.Br(),
+    #         html.H2("Find this project and all csv files in the next link:"),
+    #         html.A(html.Button("CrimePoll on GitHub"), href="https://github.com/danielgonz77/CrimePoll_v3"),
+    #         #dcc.Link("CrimePoll on GitHub", href="https://github.com/danielgonz77/CrimePoll_v3", style="fontsize:15px"),
+    #         html.Br(),
+    #         html.Br()
+    #     ], width=12)
+    # ])
 
     
 ])
 
 @app.callback(
     Output('slct_alcaldia', "options"),
-    [Input('slct_year', 'value')]
+    [Input('slct_year', 'value'),
+    Input('toggle-switch', 'value')]
 )
-def get_alcaldias_options(slct_year):
+def get_alcaldias_options(slct_year, dataset_slct):
     if(slct_year == None):
         slct_year = 2016
-    df_alcaldia = df_all[df_all["Anio"] == slct_year]
+    
+    df_all_o3 = pd.read_csv("./csv/df_air_crime_evaluation_o3.csv")
+
+    if(dataset_slct == True):
+        df_prepared = df_all_o3.copy()
+    else:
+        df_prepared = df_all.copy()
+        
+    df_alcaldia = df_prepared[df_prepared["Anio"] == slct_year]
     return [{'label': i, 'value': i} for i in df_alcaldia["Alcaldia"].unique()]
 
 
@@ -218,17 +270,31 @@ def get_alcaldias_options(slct_year):
      Output(component_id='air_map', component_property='figure'),
      Output(component_id='plots_air_crime', component_property='figure'),
      Output(component_id='only_air_map', component_property='figure'),
-     Output(component_id='only_crime_map', component_property='figure')],
+     Output(component_id='only_crime_map', component_property='figure'),
+     Output(component_id='toggle-switch-output', component_property='children')],
     [Input(component_id='slct_year', component_property='value'),
      Input(component_id='slct_alcaldia', component_property='value'),
      Input(component_id='slct_date', component_property='date'),
-     Input(component_id='slct_aqi', component_property='value')]
+     Input(component_id='slct_aqi', component_property='value'),
+     Input(component_id='toggle-switch', component_property='value')]
 )
 # below of each callback, need to create a function with args=inputs
-def update_graph(option_slctd, alcaldia_slct, date_slct, aqi_slct):
+def update_graph(option_slctd, alcaldia_slct, date_slct, aqi_slct, dataset_slct):
     print(option_slctd)
+    #df_all = pd.read_csv("../CSV_limpios/df_air_crime_evaluation.csv")
+    df_all_o3 = pd.read_csv("./csv/df_air_crime_evaluation_o3.csv")
 
-    container = "The year that you selected was: {} and Alcaldia: {}".format(
+    #df_prepared = df_all.copy()
+    if(dataset_slct == True):
+        df_prepared = df_all_o3.copy()
+        o3 = "PM2.5 with Ozone"
+    else:
+        df_prepared = df_all.copy()
+        o3 = "PM2.5"
+
+    dataset_slct_text = f"You've selected the dataset that uses {o3}."
+    
+    container = "The year that you've selected was: {} and Alcaldia: {}".format(
         option_slctd, alcaldia_slct, date_slct)
 
 
@@ -318,7 +384,7 @@ def update_graph(option_slctd, alcaldia_slct, date_slct, aqi_slct):
     #     df_all_plots["p value"] = " NULL"
     #     df_all_plots["% / 10 AQI"] = " NULL"
 
-    return container, prediction_text, fig, figure2, fig_air, fig_crime
+    return container, prediction_text, fig, figure2, fig_air, fig_crime, dataset_slct_text
 
 
 
